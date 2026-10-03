@@ -1,4 +1,165 @@
-# Kappa4413USB – Python Example
+# IS4413-M1 I2C 4-20 mA Current Loop Transmitter – Arduino Example
+
+<p align="center">
+  <a href="https://inacks.com/product/i2c-4-20-ma-current-loop-transmitter-module-3-wire-is4413-m1/">
+    <img src="https://inacks.com/wp-content/uploads/IS4413.png" alt="IS4413-M1 I2C 4-20 mA current loop transmitter module" width="250">
+  </a>
+</p>
+
+This example is powered by the **IS4413-M1**, an I2C current loop transmitter module (3-wire) that lets any microcontroller with I2C generate a 4-20 mA signal with a single I2C write.
+
+No analog circuitry to design. No extra libraries. No calibration needed for general use.  
+The IS4413-M1 contains the complete analog side of the transmitter: your code sends the current value over I2C, and the module generates it on its COUT pad.
+
+Perfect for sensors and transmitters that send pressure, temperature, flow, level or weight readings to a PLC, for adding 4-20 mA outputs to your own controllers, and for driving current loop actuators without a PLC.
+
+### 🛒 [Buy the IS4413-M1, get the datasheet and learn more](https://inacks.com/product/i2c-4-20-ma-current-loop-transmitter-module-3-wire-is4413-m1/)
+
+---
+
+## What this example does
+
+- Generates 4, 8, 12, 16 and 20 mA on the current loop output, two seconds each, in an endless loop.
+- Reports every step on the Serial Monitor at 115200 baud.
+- Prints an error message if the IS4413-M1 does not acknowledge the I2C transfer.
+
+The sketch defines a few small functions that you can reuse in your own projects:
+
+| Function | What it does |
+|---|---|
+| `is4413Write(command, value)` | Sends the four-byte I2C write: slave address, command, Data (Hi) and Data (Lo). Returns `false` if the IS4413-M1 does not acknowledge the transfer. |
+| `is4413SetValue(value)` | **Set Current Value** (command 64): updates the output current. This is the normal operation. |
+| `is4413SetDefault(value)` | **Set Default Value** (command 96): updates the output current and also stores it in the internal EEPROM as the safe power-up current. |
+| `is4413SetMilliamps(mA)` | Converts a current in mA into a value (0 to 4095) and sends it. |
+
+---
+
+## What you need
+
+- An [IS4413-M1 module](https://inacks.com/product/i2c-4-20-ma-current-loop-transmitter-module-3-wire-is4413-m1/)
+- An Arduino Uno, or any Arduino board with 5 V I2C
+- A 24 V power supply that can provide at least 30 mA
+- Two 4.7 kΩ resistors for the I2C pull-ups
+- A current loop receiver, such as a PLC analog input. To test without a PLC, use a 250 Ω resistor (0.25 W or higher) and a multimeter.
+- The Arduino IDE. The sketch only uses the standard `Wire` library, which comes with the IDE.
+
+---
+
+## Wiring
+
+| IS4413-M1 pad | Connect to |
+|---|---|
+| 1 – SDA | Arduino SDA (A4 on the Uno), with a 4.7 kΩ pull-up to the Arduino 5V pin |
+| 2 – SCL | Arduino SCL (A5 on the Uno), with a 4.7 kΩ pull-up to the Arduino 5V pin |
+| 3 and 7 – GND | 24 V power supply 0 V, Arduino GND and current loop receiver return |
+| 4, 5 and 6 – COUT | Current loop receiver input (to test without a PLC, a 250 Ω resistor between COUT and GND) |
+| 8 – 24V | 24 V power supply + |
+
+- The IS4413-M1 takes its power from the 24 V supply, not from the Arduino. The module, the Arduino and the receiver must share the same GND.
+- Connect both GND pads and all three COUT pads.
+- On other Arduino boards, use the board's SDA and SCL pins, for example pins 20 and 21 on the Arduino Mega 2560.
+- The I2C interface works at 5 V. With a 3.3 V board, use an I2C level shifter unless its I2C pins are 5 V tolerant.
+
+---
+
+## Running the example
+
+1. Wire the circuit and turn on the 24 V power supply.
+2. Open the sketch in the Arduino IDE.
+3. Select your board and port, and upload the sketch.
+4. Open the Serial Monitor at 115200 baud.
+
+You should see:
+
+```
+IS4413-M1 Arduino example
+Output set to 4 mA
+Output set to 8 mA
+Output set to 12 mA
+Output set to 16 mA
+Output set to 20 mA
+Output set to 4 mA
+...
+```
+
+If you're testing with a 250 Ω resistor, measure the voltage across it (approximate values):
+
+| Output current | Voltage across 250 Ω |
+|:---:|:---:|
+| 4 mA | 1 V |
+| 8 mA | 2 V |
+| 12 mA | 3 V |
+| 16 mA | 4 V |
+| 20 mA | 5 V |
+
+---
+
+## How it works
+
+The Arduino (I2C master) sets the output current with a single four-byte write:
+
+| Byte | Content |
+|:---:|---|
+| 1 | Slave address **96** (7-bit), write |
+| 2 | Command: **64** (Set Current Value) or **96** (Set Default Value) |
+| 3 | Data (Hi): bits D11–D4 of the 12-bit value |
+| 4 | Data (Lo): bits D3–D0 in the upper four bits, lower four bits set to 0 |
+
+The 12-bit value (0 to 4095) sets the output current from 0 mA to approximately 22 mA:
+
+| Value | Output current (approx.) | Bytes after the address |
+|:---:|:---:|:---:|
+| 0 | 0 mA | 64, 0, 0 |
+| 725 | 4 mA | 64, 45, 80 |
+| 3640 | 20 mA | 64, 227, 128 |
+| 4095 | 22 mA | 64, 255, 240 |
+
+Besides the standard 4-20 mA range, you can generate currents below 4 mA and above 20 mA to signal saturation or fault conditions.
+
+In the sketch, the whole I2C transfer is just this:
+
+```cpp
+bool is4413Write(uint8_t command, uint16_t value) {
+  value &= 0x0FFF;                               // Keep the 12 useful bits
+  Wire.beginTransmission(IS4413_ADDRESS);
+  Wire.write(command);
+  Wire.write((uint8_t)(value >> 4));             // Data (Hi): D11..D4
+  Wire.write((uint8_t)((value & 0x0F) << 4));    // Data (Lo): D3..D0, then 0000
+  return Wire.endTransmission() == 0;            // 0 means success
+}
+```
+
+The same four-byte write works on any microcontroller with an I2C master interface, such as an STM32 or an ESP32.
+
+---
+
+## Notes
+
+- **Accuracy:** the IS4413-M1 is ready to use, and no calibration is needed for general use. `is4413SetMilliamps()` converts mA into values using two approximate points, `VALUE_AT_4MA` (725) and `VALUE_AT_20MA` (3640). For maximum accuracy, calibrate your module: measure its output current near 4 mA and near 20 mA, calculate the values that generate exactly 4 mA and 20 mA, and replace these two constants.
+- **Safe power-up current:** at power-up, the IS4413-M1 generates a stored safe current until it receives its first command. To store 0 mA as the power-up current, uncomment `is4413SetDefault(0);` in `setup()` and run the sketch once. It's only needed once, so comment it out again afterwards.
+- **EEPROM writes:** `is4413SetDefault()` waits 50 ms for the EEPROM write to finish. Use it only to change the power-up current, never to update the output continuously. For normal updates, use `is4413SetValue()` or `is4413SetMilliamps()`.
+- **I2C speed:** the sketch runs the bus at 100 kbps with 4.7 kΩ pull-ups. The IS4413-M1 also supports 400 kbps and 3.4 Mbps. At those speeds, use 2 kΩ pull-ups.
+- **Several modules:** the I2C slave address is fixed (96). To control several IS4413-M1 modules, connect each one to a separate I2C bus or use an I2C multiplexer.
+
+---
+
+## Troubleshooting
+
+If the Serial Monitor shows `Error: no answer from the IS4413-M1, check the wiring and the 24 V supply`, the module did not acknowledge the I2C transfer. Check:
+
+- The SDA and SCL connections.
+- The 4.7 kΩ pull-up resistors to 5 V.
+- The 24 V power supply. The IS4413-M1 does not answer without it.
+- The common GND between the Arduino, the IS4413-M1 and the 24 V power supply.
+
+---
+
+## Get the IS4413-M1
+
+- 🛒 **[Buy the IS4413-M1](https://inacks.com/product/i2c-4-20-ma-current-loop-transmitter-module-3-wire-is4413-m1/)**: I2C 4-20 mA Current Loop Transmitter Module (3-Wire)
+- 📄 [IS4413-M1 datasheet (ISDOC150)](https://inacks.com/wp-content/uploads/IS4413-M1-Datasheet-I2C-4-20-mA-Current-Loop-Transmitter-3-Wire-ISDOC150.pdf): electrical characteristics, pad description, I2C interface and a hardware example
+
+ℹ️ For more information: [www.inacks.com](https://www.inacks.com)# Kappa4413USB – Python Example
 
 Control the 4–20 mA output of an **IS4413-M1** current-loop transmitter from your PC, using the **Kappa4413USB** and a few lines of Python.
 
